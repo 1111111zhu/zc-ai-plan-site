@@ -1,2 +1,2 @@
 // 后端地址：由 scripts/build-pages.mjs 生成
-window.ZC_API_BASE = "https://ideas-bibliography-senate-summary.trycloudflare.com";
+window.ZC_API_BASE = "https://zc-ai-plan.pages.dev";
