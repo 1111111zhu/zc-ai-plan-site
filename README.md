@@ -1,8 +1,7 @@
-# 浙财 AI 生态计划 · 只读快照
+# 浙财 AI 生态计划 · 入口
 
-这是 [zc-ai-plan](../) 的**静态只读快照**：复用应用自身的前端与样式，
-把 `/api/session`、`/api/board` 两个接口打桩成内联数据，因此无需服务端即可浏览。
+本仓库只做**跳转**：本站是静态托管（GitHub Pages），无法承载服务端，
+真正的应用（登录、编辑、多人同步）运行在隧道后端。
 
-- 页面由 `node sites-static/build.mjs` 从 `board.json` 生成
-- 快照 revision：25（6 项资源 / 5 项安排 / 8 条进展）
-- **只读**：所有编辑入口已隐藏，写请求返回 403
+- 应用地址：https://them-pleasant-playing-lenders.trycloudflare.com/
+- 隧道重启后网址会变，届时需更新本文件
