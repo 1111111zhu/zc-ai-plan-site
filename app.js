@@ -6,56 +6,92 @@
   const icon=n=>`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]||paths.plus}</svg>`;
   const tones=['mint','violet','pink','yellow'];
   const statusNames={todo:'待开始',doing:'进行中',done:'已完成'};
-  const state={session:null,board:null,sync:'connecting',stream:null,pollTimer:null,pollPending:false,modal:null,pending:false,taskEditing:false,theme:readLocal('zc-theme')||'light',presence:{count:1,members:[]}};
+  const state={session:null,board:null,sync:'connecting',stream:null,pollTimer:null,pollAbort:null,pollGeneration:0,pollAgain:false,etag:null,accessToken:'',modal:null,pending:false,taskEditing:false,theme:readLocal('zc-theme')||'light',presence:{count:1,members:[]}};
   document.documentElement.dataset.theme=state.theme;
   function readLocal(k){try{return localStorage.getItem(k);}catch{return null;}}
   function writeLocal(k,v){try{localStorage.setItem(k,v);}catch{}}
+  // 后端所在地址；同源部署时留空。静态前端另放一处时由 config.js 注入。
+  function apiBase(){try{return String(window.ZC_API_BASE||'').replace(/\/$/,'');}catch{return '';}}
   const editor=()=>state.session?.role==='editor';
   const editable=()=>editor()&&state.sync!=='offline';
   function toast(message,error=false){const el=document.createElement('div');el.className=`toast${error?' error':''}`;el.textContent=message;$('#toast-root').replaceChildren(el);setTimeout(()=>el.remove(),3500);}
   async function request(path,opts={}){
     let response;
-    try{response=await fetch(path,{credentials:'same-origin',...opts,headers:{'Content-Type':'application/json',...(opts.method&&opts.method!=='GET'?{'X-CSRF-Token':state.session?.csrfToken||''}:{}),...opts.headers}});}
+    try{response=await fetch(apiBase()+path,{credentials:'same-origin',...opts,cache:'no-store',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.accessToken,'X-Zc-Name':encodeURIComponent(readLocal('zc-name')||''),...(opts.method&&opts.method!=='GET'?{'X-CSRF-Token':state.session?.csrfToken||''}:{}),...opts.headers}});}
     catch{state.sync='offline';render();throw new Error('连接失败，未保存。');}
     let body;try{body=await response.json();}catch{body={error:'无法读取服务器响应。'};}
     if(!response.ok){const error=new Error(body.error||`请求失败（${response.status}）`);error.status=response.status;error.body=body;throw error;}
+    if(body&&Array.isArray(body.tasks)&&Number.isSafeInteger(body.revision)&&(!state.board||body.revision>=state.board.revision)){const etag=response.headers.get('ETag');if(etag)state.etag=etag;}
     return body;
   }
+  function stopPolling(){
+    state.pollGeneration++;clearTimeout(state.pollTimer);state.pollTimer=null;
+    state.pollAbort?.abort();state.pollAbort=null;state.pollAgain=false;
+  }
+  function pollDelay(){return document.visibilityState==='hidden'?15000:2500;}
   function connect(){
-    state.stream?.close();state.sync=navigator.onLine?'connecting':'offline';
-    if(!navigator.onLine){render();return;}
-    // Quick Tunnels buffer server-sent events, so fetch revisions periodically there.
-    if(location.hostname.endsWith('.trycloudflare.com')){
-      state.sync='synced';
-      if(!state.pollTimer)state.pollTimer=setInterval(pollBoard,5000);
-      render();
-      return;
-    }
-    state.stream=new EventSource('/api/events');
-    state.stream.onopen=()=>{state.sync='synced';render();};
-    state.stream.addEventListener('board',e=>{try{const board=JSON.parse(e.data);if(!state.board||board.revision>=state.board.revision){state.board=board;state.sync='synced';render();}}catch{toast('同步失败，请刷新。',true);}});
-    state.stream.addEventListener('presence',e=>{try{state.presence=JSON.parse(e.data);}catch{}});
-    state.stream.onerror=()=>{state.sync=navigator.onLine?'reconnecting':'offline';render();};
+    stopPolling();state.sync=navigator.onLine?'connecting':'offline';
+    if(navigator.onLine)pollBoard(state.pollGeneration);else render();
   }
-  async function pollBoard(){
-    if(state.pollPending||!state.session?.authenticated||!navigator.onLine)return;
-    state.pollPending=true;
+  async function pollBoard(generation){
+    if(generation!==state.pollGeneration||!state.session?.authenticated||!state.accessToken)return;
+    if(state.pollAbort){state.pollAgain=true;return;}
+    if(!navigator.onLine){state.sync='offline';render();return;}
+    const controller=new AbortController();state.pollAbort=controller;
+    const timeout=setTimeout(()=>controller.abort(),12000);let authorized=true;
     try{
-      const board=await request('/api/board');
-      if(!state.board||board.revision>state.board.revision){state.board=board;render();}
-      if(state.sync!=='synced'){state.sync='synced';render();}
-    }catch{if(state.sync!=='offline'){state.sync='offline';render();}}
-    finally{state.pollPending=false;}
+      const response=await fetch('/api/board',{credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{'Authorization':'Bearer '+state.accessToken,...(state.etag?{'If-None-Match':state.etag}:{})}});
+      if(generation!==state.pollGeneration)return;
+      if(response.status===401||response.status===403){authorized=false;state.sync='offline';render();toast('计划链接无效或已失效',true);return;}
+      let changed=false;
+      if(response.status!==304){
+        if(!response.ok)throw new Error('同步失败');
+        const board=await response.json();if(!board||!Array.isArray(board.tasks)||!Number.isSafeInteger(board.revision))throw new Error('同步数据无效');
+        if(!state.board||board.revision>=state.board.revision){changed=!state.board||board.revision>state.board.revision;state.board=board;const etag=response.headers.get('ETag');if(etag)state.etag=etag;}
+      }
+      const recovered=state.sync!=='synced';state.sync='synced';if(changed||recovered)render();
+    }catch{
+      if(generation===state.pollGeneration){const sync=navigator.onLine?'reconnecting':'offline';if(state.sync!==sync){state.sync=sync;render();}}
+    }finally{
+      clearTimeout(timeout);
+      if(generation===state.pollGeneration){state.pollAbort=null;if(authorized&&state.session?.authenticated){const delay=state.pollAgain?0:pollDelay();state.pollAgain=false;state.pollTimer=setTimeout(()=>pollBoard(generation),delay);}}
+    }
   }
+  function linkToken(){return new URLSearchParams(location.hash.replace(/^#/, '')).get('token')||'';}
   async function initialize(){
-    const invite=new URLSearchParams(location.hash.replace(/^#/,'')).get('invite');
-    if(invite){history.replaceState(null,'',location.pathname+location.search);await login(invite,readLocal('zc-name')||'伙伴');return;}
-    try{state.session=await request('/api/session');if(state.session.authenticated){state.board=await request('/api/board');connect();}render();}catch(e){renderLogin(e.message);}
+    const link=linkToken();
+    if(link){state.accessToken=link;writeLocal('zc-port-token',link);}
+    else{state.accessToken=readLocal('zc-port-token')||'';}
+    // 不再因为没有 token 就拦在登录页：后端可能是开放访问模式（OPEN_ACCESS）
+    try{
+      state.session=await request('/api/session');
+      if(!state.session.authenticated){state.accessToken='';renderLogin('邀请码无效或已失效');return;}
+      state.board=await request('/api/board');connect();render();
+    }catch(e){
+      if(e.status===401||e.status===403){state.accessToken='';renderLogin('邀请码无效或已失效');return;}
+      renderLogin(e.message||'暂时无法连接，请稍后刷新');
+    }
   }
-  async function login(code,name){try{state.session=await request('/api/login',{method:'POST',body:JSON.stringify({code,name})});if(!state.session.authenticated)throw new Error('邀请码无效。');writeLocal('zc-name',name);state.board=await request('/api/board');connect();render();}catch(e){renderLogin(e.message);}}
   function renderLogin(error=''){
     const name=$('#login-name')?.value||readLocal('zc-name')||'',code=$('#login-code')?.value||'';
     $('#app').innerHTML=`<main class="login-wrap"><section class="login-card"><h1>浙财 AI 生态计划</h1><form id="login-form"><label>名字<input id="login-name" name="name" value="${esc(name)}" autocomplete="nickname" maxlength="40" required></label><label>邀请码<input id="login-code" name="code" value="${esc(code)}" autocomplete="off" maxlength="2000" required></label><p class="form-error" role="alert">${esc(error)}</p><button type="submit" class="button primary wide">进入</button></form></section></main>`;
+  }
+  async function login(code,name){
+    state.accessToken=String(code||'').trim();
+    if(!state.accessToken){renderLogin('请填写邀请码。');return;}
+    if(name)writeLocal('zc-name',name);
+    try{
+      state.session=await request('/api/session');
+      if(!state.session.authenticated)throw Object.assign(new Error('邀请码无效。'),{status:401});
+      writeLocal('zc-port-token',state.accessToken);
+      state.board=await request('/api/board');connect();render();
+    }catch(e){
+      state.accessToken='';
+      renderLogin(e.status===401||e.status===403?'邀请码无效。':'暂时无法连接，请稍后重试。');
+    }
+  }
+  function renderAccess(message='请使用完整的计划链接'){
+    $('#app').innerHTML=`<main class="access-message"><section><h1>浙财 AI 生态计划</h1><p role="status">${esc(message)}</p></section></main>`;
   }
   function render(){
     if(!state.session?.authenticated||!state.board){renderLogin();return;}
@@ -252,7 +288,7 @@
     if(!editor())throw new Error('只读，无法修改。');
     if(!navigator.onLine||state.sync==='offline')throw new Error('离线，未保存。');
     const payload=action==='create'?{kind,action,fields}:{kind,action,id,expectedVersion:version,...(action==='delete'?{}:{fields})};
-    const board=await request('/api/changes',{method:'POST',body:JSON.stringify(payload)});state.board=board;if(state.sync!=='reconnecting')state.sync='synced';render();
+    const board=await request('/api/changes',{method:'POST',body:JSON.stringify(payload)});if(!state.board||board.revision>=state.board.revision)state.board=board;if(state.sync!=='reconnecting')state.sync='synced';render();
   }
   function conflict(e){if(e.status===409&&e.body?.current){state.board=e.body.current;render();state.modal.conflict=true;$('#save-button').disabled=true;$('#edit-error').textContent='内容已被修改。草稿已保留，请复制后重新打开。';return true;}return false;}
   async function save(form){
@@ -276,6 +312,7 @@
   }
   async function complete(button){const t=state.board.tasks.find(t=>t.id===button.dataset.id);if(!t)return;button.disabled=true;try{await change('task','update',t.id,t.version,{status:t.status==='done'?'todo':'done',progress:t.status==='done'?0:100});}catch(e){if(e.status===409&&e.body?.current){state.board=e.body.current;render();toast('内容已更新，请重试。',true);}else{toast(e.message,true);button.disabled=false;}}}
   document.addEventListener('click',async e=>{
+    const anchor=e.target.closest('.jump-links a');if(anchor){e.preventDefault();const target=document.getElementById(anchor.getAttribute('href').slice(1));target?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});return;}
     const button=e.target.closest('[data-action]');if(!button||button.disabled)return;
     const action=button.dataset.action;
     if(action==='edit')edit(button.dataset.kind,button.dataset.id);
@@ -294,8 +331,12 @@
   document.addEventListener('input',e=>{if(e.target.closest('#edit-form')&&state.modal)state.modal.dirty=true;if(e.target.classList.contains('history-edit-content')){const id=e.target.closest('.history-record').dataset.recordId,draft=state.modal?.historyEdits?.get(id);if(draft)draft.dirty=e.target.value!==draft.originalContent;}if(e.target.name==='progress')$('#progress-output').textContent=e.target.value+'%';if(state.modal?.mode==='progress')progressDirty();});
   document.addEventListener('change',e=>{if(e.target.closest('#edit-form')&&state.modal)state.modal.dirty=true;if(e.target.name==='status'&&e.target.value==='done'){const range=$('[name="progress"]');range.value=100;$('#progress-output').textContent='100%';}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.modal&&!state.modal.dirty)close();if(e.key==='Tab'&&state.modal){const nodes=[...$('#modal-root').querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]')].filter(n=>n.getClientRects().length),first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}});
-  window.addEventListener('offline',()=>{state.sync='offline';render();});
-  window.addEventListener('online',async()=>{if(state.session?.authenticated){try{state.board=await request('/api/board');connect();render();}catch(e){toast(e.message,true);}}});
+  window.addEventListener('offline',()=>{stopPolling();state.sync='offline';render();});
+  window.addEventListener('online',()=>{if(state.session?.authenticated){connect();render();}});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.session?.authenticated&&navigator.onLine){clearTimeout(state.pollTimer);pollBoard(state.pollGeneration);}});
+  window.addEventListener('hashchange',()=>{const token=linkToken();if(token&&token!==state.accessToken){stopPolling();state.etag=null;initialize();}});
+  window.addEventListener('pagehide',()=>stopPolling());
+  window.addEventListener('pageshow',e=>{if(e.persisted&&state.session?.authenticated)connect();});
   window.addEventListener('beforeunload',e=>{if(state.modal?.dirty){e.preventDefault();e.returnValue='';}});
   initialize();
 })();

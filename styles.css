@@ -192,3 +192,8 @@ form textarea.history-edit-content {height:104px;min-height:104px;max-height:104
 .is-history-editing>.history-header>.history-actions>.history-edit {display:none;}
 .history-deleted-draft>.history-header>.history-actions {display:none;}
 .history-deleted-draft .history-edit-error {color:var(--muted);}
+
+.access-message {min-height:100svh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.access-message>section {background:var(--surface);border-radius:24px;padding:28px 30px;box-shadow:var(--shadow);max-width:390px;width:100%;}
+.access-message h1 {font-size:22px;}
+.access-message p {margin-top:15px;font-size:13px;color:var(--muted);line-height:1.7;}
