@@ -2,7 +2,7 @@
 (() => {
   const $=(s,r=document)=>r.querySelector(s);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const paths={plus:'<path d="M12 5v14M5 12h14"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',check:'<path d="m5 12 4 4L19 6"/>',edit:'<path d="m15 4 5 5M4 20l5-1L21 7l-4-4L5 15Z"/>'};
+  const paths={grip:'<path d="M8 6h1.6M14.4 6H16M8 12h1.6M14.4 12H16M8 18h1.6M14.4 18H16"/>',plus:'<path d="M12 5v14M5 12h14"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',check:'<path d="m5 12 4 4L19 6"/>',edit:'<path d="m15 4 5 5M4 20l5-1L21 7l-4-4L5 15Z"/>'};
   const icon=n=>`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]||paths.plus}</svg>`;
   const tones=['mint','violet','pink','yellow'];
   const statusNames={todo:'待开始',doing:'进行中',done:'已完成'};
@@ -108,10 +108,10 @@
     for(const [key,value] of [['contact',r.contact],['location',r.location],['wechat',r.wechat]]){const text=String(value||'').trim();if(!text||seen.has(text)||(key==='contact'&&name.includes(text)))continue;seen.add(text);details.push(key==='wechat'?`微信 ${text}`:text);}
     return `<button class="resource-row" data-action="edit" data-kind="resource" data-id="${esc(r.id)}"><strong>${esc(name)}</strong>${details.length?`<span>${esc(details.join(' · '))}</span>`:''}</button>`;
   }
-  function taskSort(a,b){if(!a.date&&!b.date)return 0;if(!a.date)return 1;if(!b.date)return -1;return a.date.localeCompare(b.date);}
-  function timeGroup(g,i){const tasks=state.board.tasks.filter(t=>t.groupId===g.id).slice().sort(taskSort);return `<section class="timeline-group ${tones[i%4]}">${groupHeader(g,'timeGroup',tasks.length)}<div class="timeline-list">${tasks.map(taskRow).join('')}</div></section>`;}
+  function taskSort(a,b){const ao=Number(a.order)||0,bo=Number(b.order)||0;if(ao!==bo)return ao-bo;if(!a.date&&!b.date)return 0;if(!a.date)return 1;if(!b.date)return -1;return a.date.localeCompare(b.date);}
+  function timeGroup(g,i){const tasks=state.board.tasks.filter(t=>t.groupId===g.id).slice().sort(taskSort);return `<section class="timeline-group ${tones[i%4]}" data-group-id="${esc(g.id)}">${groupHeader(g,'timeGroup',tasks.length)}<div class="timeline-list">${tasks.map(taskRow).join('')}</div></section>`;}
   function taskDate(t){if(!t.date)return '待定';const [,m,d]=t.date.split('-');return `${Number(m)}/${Number(d)}`;}
-  function taskRow(t){const done=t.status==='done',progress=done?100:Number(t.progress)||0;return `<article class="timeline-item ${done?'done':''}"><span class="timeline-node" aria-hidden="true"></span><button class="task-row" data-action="${state.taskEditing?'edit':'fill'}" data-kind="task" data-id="${esc(t.id)}"><strong>${esc(t.title)}</strong><span class="task-meta"><time>${esc(taskDate(t))}</time><span>${statusNames[t.status]||'待开始'}${progress>0?' '+progress+'%':''}</span></span>${progress>0&&progress<100?`<span class="progress-track"><i style="width:${Math.min(100,Math.max(0,progress))}%"></i></span>`:''}</button><button class="task-check ${done?'checked':''}" data-action="complete" data-id="${esc(t.id)}" aria-label="${done?'取消完成':'标记完成'}：${esc(t.title)}" aria-pressed="${done}" ${editable()?'':'disabled'}>${done?icon('check'):''}</button></article>`;}
+  function taskRow(t){const done=t.status==='done',progress=done?100:Number(t.progress)||0;return `<article class="timeline-item ${done?'done':''}" data-id="${esc(t.id)}">${editable()?`<button type="button" class="drag-handle" data-drag-handle aria-label="拖动排序：${esc(t.title)}" title="拖动调换顺序">${icon('grip')}</button>`:''}<span class="timeline-node" aria-hidden="true"></span><button class="task-row" data-action="${state.taskEditing?'edit':'fill'}" data-kind="task" data-id="${esc(t.id)}"><strong>${esc(t.title)}</strong><span class="task-meta"><time>${esc(taskDate(t))}</time><span>${statusNames[t.status]||'待开始'}${progress>0?' '+progress+'%':''}</span></span>${progress>0&&progress<100?`<span class="progress-track"><i style="width:${Math.min(100,Math.max(0,progress))}%"></i></span>`:''}</button><button class="task-check ${done?'checked':''}" data-action="complete" data-id="${esc(t.id)}" aria-label="${done?'取消完成':'标记完成'}：${esc(t.title)}" aria-pressed="${done}" ${editable()?'':'disabled'}>${done?icon('check'):''}</button></article>`;}
   function modal(title,content){state.modal={...state.modal,title};document.body.classList.add('modal-open');$('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-header"><h2 id="modal-title">${esc(title)}</h2><button class="icon-button" data-action="close-modal" aria-label="关闭">${icon('close')}</button></header>${content}</section></div>`;requestAnimationFrame(()=>$('.modal input:not([type="hidden"]):not(:disabled), .modal button:not(:disabled)')?.focus());}
   function close(){if(state.pending)return;state.modal=null;$('#modal-root').replaceChildren();document.body.classList.remove('modal-open');}
   function input(label,name,value='',type='text',attrs=''){return `<label>${label}<input name="${name}" value="${esc(value)}" type="${type}" ${attrs}></label>`;}
@@ -311,7 +311,84 @@
     catch(e){if(!conflict(e)){$('#edit-error').textContent=e.message;button.disabled=false;}state.pending=false;}
   }
   async function complete(button){const t=state.board.tasks.find(t=>t.id===button.dataset.id);if(!t)return;button.disabled=true;try{await change('task','update',t.id,t.version,{status:t.status==='done'?'todo':'done',progress:t.status==='done'?0:100});}catch(e){if(e.status===409&&e.body?.current){state.board=e.body.current;render();toast('内容已更新，请重试。',true);}else{toast(e.message,true);button.disabled=false;}}}
+  // ===== 拖动调换顺序 =====
+  // 触屏必须用把手（否则与页面滚动冲突）；鼠标可直接拖整张卡片。
+  let drag=null,suppressClick=0;
+  function beginDrag(item,e){
+    const list=item.parentElement;if(!list)return;
+    const rect=item.getBoundingClientRect();
+    const placeholder=document.createElement('div');
+    placeholder.className='drag-placeholder';placeholder.style.height=rect.height+'px';
+    item.after(placeholder);
+    item.classList.add('is-dragging');
+    item.style.width=rect.width+'px';item.style.left=rect.left+'px';
+    item.style.top=rect.top+'px';item.style.height=rect.height+'px';
+    drag={item,list,placeholder,offsetY:e.clientY-rect.top,pointerId:e.pointerId};
+    document.body.classList.add('is-dragging');
+  }
+  function moveDrag(e){
+    if(!drag||e.pointerId!==drag.pointerId)return;
+    drag.item.style.top=(e.clientY-drag.offsetY)+'px';
+    // 记住最后进入过的列表：拖到列表之间的空隙或末尾时不要退回原组
+    let target=drag.target||drag.list;
+    for(const list of document.querySelectorAll('.timeline-list')){
+      const r=list.getBoundingClientRect();
+      if(e.clientY>=r.top-36&&e.clientY<=r.bottom+36){target=list;break;}
+    }
+    drag.target=target;
+    const siblings=[...target.children].filter(el=>el.classList&&el.classList.contains('timeline-item')&&el!==drag.item);
+    let before=null;
+    for(const el of siblings){const r=el.getBoundingClientRect();if(e.clientY<r.top+r.height/2){before=el;break;}}
+    if(before)target.insertBefore(drag.placeholder,before);else target.appendChild(drag.placeholder);
+  }
+  async function endDrag(e){
+    if(!drag||(e&&e.pointerId!==drag.pointerId))return;
+    const d=drag;drag=null;document.body.classList.remove('is-dragging');
+    const list=d.placeholder.parentElement;
+    const group=list?.closest('.timeline-group');
+    const groupId=group?.dataset.groupId||'';
+    // 拖动中的卡片仍是列表子节点（只是 position:fixed 脱离布局），要先排除它，
+    // 再把占位符换成它，否则同一个 id 会被算两次。
+    const ids=[...list.children].filter(el=>el!==d.item).map(el=>(el===d.placeholder?d.item:el))
+      .filter(el=>el.classList&&el.classList.contains('timeline-item'))
+      .map(el=>el.dataset.id).filter(Boolean);
+    const home=d.item.parentElement, homeNext=d.item.nextSibling;
+    d.item.classList.remove('is-dragging');d.item.removeAttribute('style');
+    d.placeholder.replaceWith(d.item);
+    suppressClick=Date.now()+400;
+    if(!groupId||!ids.length)return;
+    const expectedVersions={};
+    for(const id of ids){const t=state.board.tasks.find(x=>x.id===id);if(!t){home.insertBefore(d.item,homeNext);return;}expectedVersions[id]=t.version;}
+    try{
+      const board=await request('/api/reorder',{method:'POST',body:JSON.stringify({groupId,ids,expectedVersions})});
+      state.board=board;render();toast('顺序已更新');
+    }catch(err){
+      if(err.status===409&&err.body?.current){state.board=err.body.current;render();toast('顺序已被其他成员改过，已刷新到最新。',true);}
+      else{toast(err.message,true);render();}
+    }
+  }
+  document.addEventListener('pointerdown',e=>{
+    if(!editable()||e.button!==0&&e.button!==undefined)return;
+    const item=e.target.closest('.timeline-item');if(!item)return;
+    const handle=e.target.closest('[data-drag-handle]');
+    if(e.pointerType!=='mouse'&&!handle)return;      // 触屏只能从把手拖
+    drag={pending:true,item,startX:e.clientX,startY:e.clientY,pointerId:e.pointerId};
+    if(handle)e.preventDefault();
+  },{passive:false});
+  document.addEventListener('pointermove',e=>{
+    if(!drag)return;
+    if(drag.pending){
+      if(Math.abs(e.clientY-drag.startY)<6&&Math.abs(e.clientX-drag.startX)<6)return;
+      const {item}=drag;drag=null;beginDrag(item,e);
+      if(!drag)return;
+    }
+    if(e.cancelable)e.preventDefault();
+    moveDrag(e);
+  },{passive:false});
+  document.addEventListener('pointerup',e=>{if(drag&&drag.pending){drag=null;return;}endDrag(e);});
+  document.addEventListener('pointercancel',e=>{if(drag&&drag.pending){drag=null;return;}endDrag(e);});
   document.addEventListener('click',async e=>{
+    if(Date.now()<suppressClick)return;
     const anchor=e.target.closest('.jump-links a');if(anchor){e.preventDefault();const target=document.getElementById(anchor.getAttribute('href').slice(1));target?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});return;}
     const button=e.target.closest('[data-action]');if(!button||button.disabled)return;
     const action=button.dataset.action;

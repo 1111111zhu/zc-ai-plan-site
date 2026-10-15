@@ -197,3 +197,16 @@ form textarea.history-edit-content {height:104px;min-height:104px;max-height:104
 .access-message>section {background:var(--surface);border-radius:24px;padding:28px 30px;box-shadow:var(--shadow);max-width:390px;width:100%;}
 .access-message h1 {font-size:22px;}
 .access-message p {margin-top:15px;font-size:13px;color:var(--muted);line-height:1.7;}
+
+/* ===== 拖动调换顺序 ===== */
+.drag-handle {flex:none;width:22px;height:44px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);opacity:.42;cursor:grab;touch-action:none;border-radius:8px;margin-left:-8px;}
+.drag-handle:hover {opacity:.9;}
+.drag-handle:active {cursor:grabbing;}
+.drag-handle .icon {height:16px;width:16px;}
+body.is-dragging {cursor:grabbing;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+body.is-dragging .timeline-item:not(.is-dragging) {transition:none;}
+.timeline-item.is-dragging {position:fixed;z-index:80;pointer-events:none;
+  box-shadow:0 18px 44px #222b2938;opacity:.97;transform:scale(1.02);}
+.drag-placeholder {border:1px dashed var(--line);border-radius:13px;background:#00000006;}
+@media(max-width:760px) {.drag-handle{width:30px;margin-left:-10px;opacity:.55;}}
